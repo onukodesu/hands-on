@@ -8,8 +8,9 @@ extends Resource
 ## Total mass of the vehicle.
 @export_range(300.0, 10000.0, 10.0, "suffix:kg") var mass: float = 1800.0
 ## Height of the center of mass relative to the body origin (wheel mount level).
-## Lower = harder to roll over.
-@export_range(-1.0, 1.0, 0.01, "suffix:m") var center_of_mass_height: float = -0.2
+## Higher = more body lean outward in turns and easier to flip.
+## Below about -0.1 the body starts leaning INTO turns, which is unrealistic.
+@export_range(-1.0, 1.0, 0.01, "suffix:m") var center_of_mass_height: float = 0.0
 
 @export_group("Engine")
 ## Drive all four wheels. Off = rear-wheel drive only.
@@ -23,11 +24,24 @@ extends Resource
 ## Top speed in reverse.
 @export_range(1.0, 100.0, 1.0, "suffix:km/h") var max_reverse_speed_kmh: float = 25.0
 
+@export_group("Gearbox")
+## In D (or R) without throttle the vehicle creeps up to this speed, like a real automatic.
+@export_range(0.0, 30.0, 0.5, "suffix:km/h") var creep_speed_kmh: float = 7.0
+## Total pushing force while creeping.
+@export_range(0.0, 20000.0, 100.0, "suffix:N") var creep_force: float = 2500.0
+## P, R and D can only be selected below this speed (in the "wrong" direction).
+@export_range(0.0, 30.0, 0.5, "suffix:km/h") var shift_lock_speed_kmh: float = 3.0
+
 @export_group("Brakes")
-## Brake strength on each wheel (S while moving forward, W while rolling back).
+## Brake strength on each wheel (S).
 @export_range(0.0, 500.0, 1.0) var brake_force: float = 50.0
-## Handbrake strength on each rear wheel (Space). Also holds the parked vehicle.
+## Handbrake strength on each rear wheel (Space toggles it).
 @export_range(0.0, 500.0, 1.0) var handbrake_force: float = 80.0
+## How hard P locks all four wheels.
+@export_range(0.0, 1000.0, 1.0) var park_brake_force: float = 200.0
+## Small constant braking on every wheel (tires, bearings), so a coasting
+## vehicle slowly stops on flat ground.
+@export_range(0.0, 20.0, 0.1) var rolling_resistance: float = 0.4
 
 @export_group("Steering")
 ## Maximum angle of the front wheels at low speed.
@@ -36,7 +50,7 @@ extends Resource
 @export_range(10.0, 720.0, 5.0, "suffix:°/s") var steer_speed_degrees: float = 100.0
 ## Share of the maximum steering angle left at top speed (1 = no limit).
 ## Keeps the vehicle from flipping in fast turns.
-@export_range(0.05, 1.0, 0.01) var steer_limit_at_max_speed: float = 0.35
+@export_range(0.05, 1.0, 0.01) var steer_limit_at_max_speed: float = 0.2
 
 @export_group("Suspension")
 ## Spring stiffness. Lower = softer, the body sways more.
@@ -56,6 +70,6 @@ extends Resource
 ## Wheel radius (also resizes the wheel model).
 @export_range(0.2, 1.2, 0.01, "suffix:m") var wheel_radius: float = 0.42
 ## Tire grip. Lower = slides more, higher = grips but rolls over easier.
-@export_range(0.5, 20.0, 0.1) var wheel_friction_slip: float = 5.0
+@export_range(0.5, 20.0, 0.1) var wheel_friction_slip: float = 4.0
 ## How much side forces tilt the body. 0 = never rolls, 1 = realistic and easy to flip.
 @export_range(0.0, 1.0, 0.01) var wheel_roll_influence: float = 0.1

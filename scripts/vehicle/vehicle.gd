@@ -1,17 +1,35 @@
 class_name Vehicle
 extends VehicleBody3D
-## Drivable vehicle. The player enters/exits with the "interact" key (E)
-## while standing near it. Physics tunables come from a VehicleStats resource.
+## Drivable vehicle with an automatic gearbox (P / R / N / D).
+## The player enters/exits with the "interact" key (E) while standing near it.
+## Physics tunables come from a VehicleStats resource.
 ## The vehicle faces +Z (Godot's VehicleBody3D convention); left side is +X.
+## Gear and handbrake stay as they were when the driver gets out.
+
+enum Gear { PARK, REVERSE, NEUTRAL, DRIVE }
 
 const MS_TO_KMH: float = 3.6
+const GEAR_LETTERS: Dictionary[Gear, String] = {
+	Gear.PARK: "P",
+	Gear.REVERSE: "R",
+	Gear.NEUTRAL: "N",
+	Gear.DRIVE: "D",
+}
+const GEAR_ACTIONS: Dictionary[String, Gear] = {
+	"gear_park": Gear.PARK,
+	"gear_reverse": Gear.REVERSE,
+	"gear_neutral": Gear.NEUTRAL,
+	"gear_drive": Gear.DRIVE,
+}
 
 ## Physics parameters of this vehicle (a .tres file in data/vehicles/).
 @export var stats: VehicleStats
+## Gear the vehicle is in when the level starts.
+@export var start_gear: Gear = Gear.PARK
+## Whether the handbrake is pulled when the level starts.
+@export var start_handbrake: bool = false
 
 @export_group("Controls")
-## Below this speed S switches from braking to reverse, and W from braking to driving forward.
-@export var direction_switch_speed_kmh: float = 3.0
 ## How many times further the steering wheel turns than the road wheels.
 @export var steering_wheel_ratio: float = 6.0
 
@@ -25,11 +43,14 @@ const MS_TO_KMH: float = 3.6
 
 @export_group("Texts")
 @export var enter_prompt: String = "E — сесть за руль"
-@export var driving_prompt: String = "E — выйти   Пробел — ручник"
-@export var speed_format: String = "%d км/ч"
+@export var driving_prompt: String = "E — выйти   1 P  2 R  3 N  4 D   Пробел — ручник"
+@export var speed_format: String = "%s     %d км/ч"
+@export var handbrake_text: String = "     РУЧНИК"
 
 var _driver: Player = null
 var _nearby_player: Player = null
+var _gear: Gear = Gear.PARK
+var _handbrake_on: bool = false
 var _steer: float = 0.0
 var _look_yaw: float = 0.0
 var _look_pitch: float = 0.0
@@ -47,6 +68,8 @@ var _look_pitch: float = 0.0
 
 func _ready() -> void:
 	assert(stats != null, "Vehicle needs a VehicleStats resource")
+	_gear = start_gear
+	_handbrake_on = start_handbrake
 	_apply_stats()
 	_enter_area.body_entered.connect(_on_enter_area_body_entered)
 	_enter_area.body_exited.connect(_on_enter_area_body_exited)
@@ -62,8 +85,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif _nearby_player != null:
 			_enter_vehicle(_nearby_player)
 			get_viewport().set_input_as_handled()
-	elif _driver != null and event is InputEventMouseMotion \
-			and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		return
+	if _driver == null:
+		return
+	if event.is_action_pressed("vehicle_handbrake"):
+		_handbrake_on = not _handbrake_on
+		get_viewport().set_input_as_handled()
+		return
+	for action: String in GEAR_ACTIONS:
+		if event.is_action_pressed(action):
+			shift_to(GEAR_ACTIONS[action])
+			get_viewport().set_input_as_handled()
+			return
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion: InputEventMouseMotion = event
 		var max_yaw: float = deg_to_rad(max_look_yaw_degrees)
 		var max_pitch: float = deg_to_rad(max_look_pitch_degrees)
@@ -77,43 +111,85 @@ func _process(_delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if _driver == null:
-		# Parked: no throttle, wheels held so it doesn't roll down hills.
-		_steer = move_toward(_steer, 0.0, deg_to_rad(stats.steer_speed_degrees) * delta)
-		_apply_controls(0.0, stats.handbrake_force, stats.handbrake_force)
-		return
-
 	var speed_kmh: float = get_forward_speed_kmh()
-	var throttle: float = Input.get_action_strength("vehicle_throttle")
-	var brake_pedal: float = Input.get_action_strength("vehicle_brake")
+	var throttle: float = 0.0
+	var brake_pedal: float = 0.0
+	var steer_input: float = 0.0
+	if _driver != null:
+		throttle = Input.get_action_strength("vehicle_throttle")
+		brake_pedal = Input.get_action_strength("vehicle_brake")
+		# Positive steering turns left.
+		steer_input = Input.get_axis("vehicle_steer_right", "vehicle_steer_left")
+
 	var engine: float = 0.0
-	var brake_amount: float = 0.0
-
-	if throttle > 0.0:
-		if speed_kmh < -direction_switch_speed_kmh:
-			brake_amount += throttle * stats.brake_force
-		elif speed_kmh < stats.max_speed_kmh:
-			engine += throttle * stats.engine_force
+	var brake_amount: float = brake_pedal * stats.brake_force
+	match _gear:
+		Gear.PARK:
+			brake_amount = maxf(brake_amount, stats.park_brake_force)
+		Gear.DRIVE:
+			engine = _drive_force(speed_kmh, throttle, stats.engine_force, stats.max_speed_kmh)
+		Gear.REVERSE:
+			engine = -_drive_force(-speed_kmh, throttle, stats.reverse_force, stats.max_reverse_speed_kmh)
+		Gear.NEUTRAL:
+			pass
 	if brake_pedal > 0.0:
-		if speed_kmh > direction_switch_speed_kmh:
-			brake_amount += brake_pedal * stats.brake_force
-		elif speed_kmh > -stats.max_reverse_speed_kmh:
-			engine -= brake_pedal * stats.reverse_force
+		# Godot ignores a wheel's brake while it has engine force.
+		engine = 0.0
+	brake_amount = maxf(brake_amount, stats.rolling_resistance)
 
-	# Positive steering turns left.
-	var steer_input: float = Input.get_axis("vehicle_steer_right", "vehicle_steer_left")
-	var speed_ratio: float = clampf(absf(speed_kmh) / stats.max_speed_kmh, 0.0, 1.0)
-	var max_steer: float = deg_to_rad(stats.max_steer_degrees) \
-			* lerpf(1.0, stats.steer_limit_at_max_speed, speed_ratio)
-	_steer = move_toward(_steer, steer_input * max_steer, deg_to_rad(stats.steer_speed_degrees) * delta)
+	# Without a driver the steering wheel stays where it was left.
+	if _driver != null:
+		var speed_ratio: float = clampf(absf(speed_kmh) / stats.max_speed_kmh, 0.0, 1.0)
+		var max_steer: float = deg_to_rad(stats.max_steer_degrees) \
+				* lerpf(1.0, stats.steer_limit_at_max_speed, speed_ratio)
+		_steer = move_toward(_steer, steer_input * max_steer, deg_to_rad(stats.steer_speed_degrees) * delta)
 
-	var handbrake: float = stats.handbrake_force if Input.is_action_pressed("vehicle_handbrake") else 0.0
+	var handbrake: float = stats.handbrake_force if _handbrake_on else 0.0
 	_apply_controls(engine, brake_amount, handbrake)
 
 
 ## Speed along the vehicle's forward axis; negative when rolling backwards.
 func get_forward_speed_kmh() -> float:
 	return linear_velocity.dot(global_basis.z) * MS_TO_KMH
+
+
+func get_gear() -> Gear:
+	return _gear
+
+
+func is_handbrake_on() -> bool:
+	return _handbrake_on
+
+
+## Moves the selector to [param gear]. Like a real automatic, P and R can't be
+## selected while moving forward, and P/D can't be selected while rolling back.
+## Returns false if the shift was refused.
+func shift_to(gear: Gear) -> bool:
+	var speed_kmh: float = get_forward_speed_kmh()
+	var limit: float = stats.shift_lock_speed_kmh
+	var allowed: bool = true
+	match gear:
+		Gear.PARK:
+			allowed = absf(speed_kmh) <= limit
+		Gear.REVERSE:
+			allowed = speed_kmh <= limit
+		Gear.DRIVE:
+			allowed = speed_kmh >= -limit
+	if allowed:
+		_gear = gear
+	return allowed
+
+
+## Engine force in the direction of travel for D (or R, with speed mirrored):
+## full throttle up to top speed, otherwise the gentle idle creep of an automatic.
+func _drive_force(speed_kmh: float, throttle: float, force: float, max_speed_kmh: float) -> float:
+	if speed_kmh >= max_speed_kmh:
+		return 0.0
+	if throttle > 0.0:
+		return maxf(throttle * force, stats.creep_force)
+	if not _handbrake_on and speed_kmh < stats.creep_speed_kmh:
+		return stats.creep_force
+	return 0.0
 
 
 func _apply_stats() -> void:
@@ -195,12 +271,24 @@ func _update_hud() -> void:
 	if _driver != null:
 		_prompt_label.text = driving_prompt
 		_prompt_label.visible = true
-		_speed_label.text = speed_format % roundi(absf(get_forward_speed_kmh()))
+		var text: String = speed_format % [_gear_strip(), roundi(absf(get_forward_speed_kmh()))]
+		if _handbrake_on:
+			text += handbrake_text
+		_speed_label.text = text
 		_speed_label.visible = true
 	else:
 		_prompt_label.text = enter_prompt
 		_prompt_label.visible = _nearby_player != null
 		_speed_label.visible = false
+
+
+## "P R N [D]" — all gears with the current one in brackets.
+func _gear_strip() -> String:
+	var parts: PackedStringArray = []
+	for gear: Gear in GEAR_LETTERS:
+		var letter: String = GEAR_LETTERS[gear]
+		parts.append("[%s]" % letter if gear == _gear else letter)
+	return " ".join(parts)
 
 
 func _on_enter_area_body_entered(body: Node3D) -> void:
