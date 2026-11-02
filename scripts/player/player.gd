@@ -1,7 +1,7 @@
 class_name Player
 extends CharacterBody3D
 ## First-person player: WASD movement, mouse look, jump and sprint.
-## Esc releases the mouse cursor, a left click captures it again.
+## Mouse capture (Esc / click) is handled by the MouseCapture autoload.
 
 @export_group("Movement")
 ## Walking speed, m/s.
@@ -22,19 +22,22 @@ extends CharacterBody3D
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 @onready var _head: Node3D = $Head
+@onready var _camera: Camera3D = $Head/Camera3D
 
 
-func _ready() -> void:
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+## Turns the on-foot player on or off (e.g. while sitting in a vehicle).
+## When off, the player is hidden, ignores input and has no collision.
+func set_controlled(active: bool) -> void:
+	process_mode = Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
+	visible = active
+	velocity = Vector3.ZERO
+	if active:
+		_head.rotation.x = 0.0
+		_camera.make_current()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	elif event is InputEventMouseButton and event.pressed \
-			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	elif event is InputEventMouseMotion \
+	if event is InputEventMouseMotion \
 			and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_look(event.relative)
 
