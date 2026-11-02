@@ -1,11 +1,12 @@
-[gd_resource type="Resource" script_class="VehicleStats" format=3]
+[gd_resource type="Resource" script_class="VehicleStats" format=3 uid="uid://nscsk2cphea4"]
 
-[ext_resource type="Script" path="res://scripts/vehicle/vehicle_stats.gd" id="1_stats"]
+[ext_resource type="Script" uid="uid://dn8iq3xcyi8hh" path="res://scripts/vehicle/vehicle_stats.gd" id="1_stats"]
 
 [resource]
 script = ExtResource("1_stats")
 mass = 1800.0
-center_of_mass_height = 0.0
+center_of_mass_height = 0.35
+center_of_mass_forward = 0.15
 all_wheel_drive = true
 engine_force = 7000.0
 reverse_force = 4000.0
@@ -17,10 +18,12 @@ shift_lock_speed_kmh = 3.0
 brake_force = 50.0
 handbrake_force = 80.0
 park_brake_force = 200.0
-rolling_resistance = 0.4
-max_steer_degrees = 32.0
-steer_speed_degrees = 100.0
-steer_limit_at_max_speed = 0.2
+rolling_resistance = 0.03
+air_drag = 0.8
+max_steer_degrees = 35.0
+steer_speed_degrees = 50.0
+steer_return_speed_degrees = 50.0
+steer_half_angle_speed_kmh = 28.0
 suspension_stiffness = 22.0
 suspension_rest_length = 0.45
 suspension_travel = 0.3
@@ -28,5 +31,6 @@ suspension_max_force = 18000.0
 damping_compression = 1.2
 damping_relaxation = 2.0
 wheel_radius = 0.42
-wheel_friction_slip = 4.0
+front_friction_slip = 0.8
+rear_friction_slip = 1.0
 wheel_roll_influence = 0.1

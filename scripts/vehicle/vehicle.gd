@@ -9,6 +9,8 @@ extends VehicleBody3D
 enum Gear { PARK, REVERSE, NEUTRAL, DRIVE }
 
 const MS_TO_KMH: float = 3.6
+## Below this speed (m/s) rolling resistance fades out, so a stopped vehicle doesn't jitter.
+const ROLLING_RESISTANCE_FADE_SPEED: float = 0.5
 const GEAR_LETTERS: Dictionary[Gear, String] = {
 	Gear.PARK: "P",
 	Gear.REVERSE: "R",
@@ -54,6 +56,7 @@ var _handbrake_on: bool = false
 var _steer: float = 0.0
 var _look_yaw: float = 0.0
 var _look_pitch: float = 0.0
+var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 @onready var _front_wheels: Array[VehicleWheel3D] = [$WheelFrontLeft, $WheelFrontRight]
 @onready var _rear_wheels: Array[VehicleWheel3D] = [$WheelRearLeft, $WheelRearRight]
@@ -135,17 +138,14 @@ func _physics_process(delta: float) -> void:
 	if brake_pedal > 0.0:
 		# Godot ignores a wheel's brake while it has engine force.
 		engine = 0.0
-	brake_amount = maxf(brake_amount, stats.rolling_resistance)
 
 	# Without a driver the steering wheel stays where it was left.
 	if _driver != null:
-		var speed_ratio: float = clampf(absf(speed_kmh) / stats.max_speed_kmh, 0.0, 1.0)
-		var max_steer: float = deg_to_rad(stats.max_steer_degrees) \
-				* lerpf(1.0, stats.steer_limit_at_max_speed, speed_ratio)
-		_steer = move_toward(_steer, steer_input * max_steer, deg_to_rad(stats.steer_speed_degrees) * delta)
+		_steer = _next_steer(steer_input, speed_kmh, delta)
 
 	var handbrake: float = stats.handbrake_force if _handbrake_on else 0.0
 	_apply_controls(engine, brake_amount, handbrake)
+	_apply_resistance()
 
 
 ## Speed along the vehicle's forward axis; negative when rolling backwards.
@@ -192,10 +192,49 @@ func _drive_force(speed_kmh: float, throttle: float, force: float, max_speed_kmh
 	return 0.0
 
 
+## Moves the front wheels toward where the driver steers, at a limited rate
+## (like turning a real steering wheel). The reachable angle shrinks with speed.
+func _next_steer(steer_input: float, speed_kmh: float, delta: float) -> float:
+	var speed_ratio: float = absf(speed_kmh) / stats.steer_half_angle_speed_kmh
+	var max_steer: float = deg_to_rad(stats.max_steer_degrees) / (1.0 + speed_ratio * speed_ratio)
+	var target: float = steer_input * max_steer
+	var returning: bool = absf(target) < absf(_steer) or target * _steer < 0.0
+	var rate_degrees: float = stats.steer_return_speed_degrees if returning else stats.steer_speed_degrees
+	return move_toward(_steer, target, deg_to_rad(rate_degrees) * delta)
+
+
+## Rolling resistance and air drag as real forces against the motion.
+## (Godot's built-in linear damping is switched off in _apply_stats.)
+func _apply_resistance() -> void:
+	var velocity: Vector3 = linear_velocity
+	var speed: float = velocity.length()
+	if speed <= 0.0:
+		return
+	var direction: Vector3 = velocity / speed
+	var drag: float = stats.air_drag * speed * speed
+	var rolling: float = 0.0
+	if _any_wheel_on_ground():
+		# Fades in from zero so a stopped vehicle doesn't jitter back and forth.
+		var fade: float = clampf(speed / ROLLING_RESISTANCE_FADE_SPEED, 0.0, 1.0)
+		rolling = stats.rolling_resistance * mass * _gravity * fade
+	apply_central_force(-direction * (drag + rolling))
+
+
+func _any_wheel_on_ground() -> bool:
+	for wheel: VehicleWheel3D in _front_wheels + _rear_wheels:
+		if wheel.is_in_contact():
+			return true
+	return false
+
+
 func _apply_stats() -> void:
 	mass = stats.mass
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
-	center_of_mass = Vector3(0.0, stats.center_of_mass_height, 0.0)
+	center_of_mass = Vector3(0.0, stats.center_of_mass_height, stats.center_of_mass_forward)
+	# The project's default damping (0.1) would act like a constant hidden brake;
+	# slowing down is modelled by _apply_resistance() instead.
+	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	linear_damp = 0.0
 	for wheel: VehicleWheel3D in _front_wheels + _rear_wheels:
 		wheel.wheel_radius = stats.wheel_radius
 		wheel.wheel_rest_length = stats.suspension_rest_length
@@ -204,15 +243,16 @@ func _apply_stats() -> void:
 		wheel.suspension_max_force = stats.suspension_max_force
 		wheel.damping_compression = stats.damping_compression
 		wheel.damping_relaxation = stats.damping_relaxation
-		wheel.wheel_friction_slip = stats.wheel_friction_slip
 		wheel.wheel_roll_influence = stats.wheel_roll_influence
 		var wheel_mesh: CylinderMesh = (wheel.get_node("Mesh") as MeshInstance3D).mesh
 		wheel_mesh.top_radius = stats.wheel_radius
 		wheel_mesh.bottom_radius = stats.wheel_radius
 	for wheel: VehicleWheel3D in _front_wheels:
+		wheel.wheel_friction_slip = stats.front_friction_slip
 		wheel.use_as_steering = true
 		wheel.use_as_traction = stats.all_wheel_drive
 	for wheel: VehicleWheel3D in _rear_wheels:
+		wheel.wheel_friction_slip = stats.rear_friction_slip
 		wheel.use_as_steering = false
 		wheel.use_as_traction = true
 

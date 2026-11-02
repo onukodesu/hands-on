@@ -10,7 +10,11 @@ extends Resource
 ## Height of the center of mass relative to the body origin (wheel mount level).
 ## Higher = more body lean outward in turns and easier to flip.
 ## Below about -0.1 the body starts leaning INTO turns, which is unrealistic.
-@export_range(-1.0, 1.0, 0.01, "suffix:m") var center_of_mass_height: float = 0.0
+@export_range(-1.0, 1.0, 0.01, "suffix:m") var center_of_mass_height: float = 0.35
+## Shift of the center of mass toward the front (+) or rear (-).
+## Real SUVs are front-heavy, which makes them push wide in fast turns
+## (understeer) instead of spinning.
+@export_range(-1.0, 1.0, 0.01, "suffix:m") var center_of_mass_forward: float = 0.15
 
 @export_group("Engine")
 ## Drive all four wheels. Off = rear-wheel drive only.
@@ -39,18 +43,26 @@ extends Resource
 @export_range(0.0, 500.0, 1.0) var handbrake_force: float = 80.0
 ## How hard P locks all four wheels.
 @export_range(0.0, 1000.0, 1.0) var park_brake_force: float = 200.0
-## Small constant braking on every wheel (tires, bearings), so a coasting
-## vehicle slowly stops on flat ground.
-@export_range(0.0, 20.0, 0.1) var rolling_resistance: float = 0.4
+
+@export_group("Resistance")
+## Tire rolling resistance: constant slowing force, as a share of the vehicle's
+## weight (0.015 asphalt, 0.03-0.05 off-road tires on dirt).
+@export_range(0.0, 0.3, 0.001) var rolling_resistance: float = 0.03
+## Air drag: slowing force = this × speed² (speed in m/s).
+## Roughly 0.5 × air density × drag coefficient × frontal area.
+@export_range(0.0, 5.0, 0.01, "suffix:N·s²/m²") var air_drag: float = 0.8
 
 @export_group("Steering")
-## Maximum angle of the front wheels at low speed.
-@export_range(5.0, 60.0, 0.5, "suffix:°") var max_steer_degrees: float = 32.0
-## How fast the front wheels turn, degrees per second.
-@export_range(10.0, 720.0, 5.0, "suffix:°/s") var steer_speed_degrees: float = 100.0
-## Share of the maximum steering angle left at top speed (1 = no limit).
-## Keeps the vehicle from flipping in fast turns.
-@export_range(0.05, 1.0, 0.01) var steer_limit_at_max_speed: float = 0.2
+## Maximum angle of the front wheels when standing still.
+@export_range(5.0, 60.0, 0.5, "suffix:°") var max_steer_degrees: float = 35.0
+## How fast the wheels turn away from center, degrees per second
+## (35° in 0.7 s = 50°/s).
+@export_range(5.0, 720.0, 1.0, "suffix:°/s") var steer_speed_degrees: float = 50.0
+## How fast the wheels return toward center, degrees per second.
+@export_range(5.0, 720.0, 1.0, "suffix:°/s") var steer_return_speed_degrees: float = 50.0
+## Speed at which the maximum steering angle is halved. Above it the angle
+## keeps shrinking: at 3× this speed only a tenth of the angle is left.
+@export_range(5.0, 200.0, 0.5, "suffix:km/h") var steer_half_angle_speed_kmh: float = 28.0
 
 @export_group("Suspension")
 ## Spring stiffness. Lower = softer, the body sways more.
@@ -69,7 +81,10 @@ extends Resource
 @export_group("Wheels")
 ## Wheel radius (also resizes the wheel model).
 @export_range(0.2, 1.2, 0.01, "suffix:m") var wheel_radius: float = 0.42
-## Tire grip. Lower = slides more, higher = grips but rolls over easier.
-@export_range(0.5, 20.0, 0.1) var wheel_friction_slip: float = 4.0
+## Grip of the front tires. Lower than the rear = the front slides first
+## in fast turns (understeer, safe), higher = the rear slides first (spin).
+@export_range(0.5, 20.0, 0.1) var front_friction_slip: float = 0.8
+## Grip of the rear tires.
+@export_range(0.5, 20.0, 0.1) var rear_friction_slip: float = 1.0
 ## How much side forces tilt the body. 0 = never rolls, 1 = realistic and easy to flip.
 @export_range(0.0, 1.0, 0.01) var wheel_roll_influence: float = 0.1
