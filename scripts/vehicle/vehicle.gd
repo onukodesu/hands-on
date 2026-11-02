@@ -125,10 +125,11 @@ func _physics_process(delta: float) -> void:
 		steer_input = Input.get_axis("vehicle_steer_right", "vehicle_steer_left")
 
 	var engine: float = 0.0
-	var brake_amount: float = brake_pedal * stats.brake_force
+	var pedal_brake: float = brake_pedal * stats.brake_force
+	var park_brake: float = 0.0
 	match _gear:
 		Gear.PARK:
-			brake_amount = maxf(brake_amount, stats.park_brake_force)
+			park_brake = stats.park_brake_force
 		Gear.DRIVE:
 			engine = _drive_force(speed_kmh, throttle, stats.engine_force, stats.max_speed_kmh)
 		Gear.REVERSE:
@@ -144,7 +145,8 @@ func _physics_process(delta: float) -> void:
 		_steer = _next_steer(steer_input, speed_kmh, delta)
 
 	var handbrake: float = stats.handbrake_force if _handbrake_on else 0.0
-	_apply_controls(engine, brake_amount, handbrake)
+	_apply_controls(engine, pedal_brake, park_brake, handbrake)
+	_apply_rear_grip(speed_kmh)
 	_apply_resistance()
 
 
@@ -257,9 +259,10 @@ func _apply_stats() -> void:
 		wheel.use_as_traction = true
 
 
-## Sends engine force (total, split between driven wheels), service brake
-## (every wheel) and handbrake (rear wheels) to the wheels.
-func _apply_controls(engine_total: float, brake_amount: float, handbrake: float) -> void:
+## Sends to the wheels: engine force (total, split between driven wheels),
+## pedal brake (total, split front/rear by brake_front_share), P lock (every
+## wheel) and handbrake (rear wheels only).
+func _apply_controls(engine_total: float, pedal_brake: float, park_brake: float, handbrake: float) -> void:
 	var handbrake_on: bool = handbrake > 0.0
 	var driven: Array[VehicleWheel3D] = []
 	for wheel: VehicleWheel3D in _front_wheels + _rear_wheels:
@@ -273,12 +276,26 @@ func _apply_controls(engine_total: float, brake_amount: float, handbrake: float)
 	for wheel: VehicleWheel3D in driven:
 		wheel.engine_force = per_wheel
 
+	var front_pedal: float = pedal_brake * stats.brake_front_share / _front_wheels.size()
+	var rear_pedal: float = pedal_brake * (1.0 - stats.brake_front_share) / _rear_wheels.size()
 	for wheel: VehicleWheel3D in _front_wheels:
-		wheel.brake = brake_amount
+		wheel.brake = maxf(front_pedal, park_brake)
 		wheel.steering = _steer
 	for wheel: VehicleWheel3D in _rear_wheels:
-		wheel.brake = maxf(brake_amount, handbrake)
+		wheel.brake = maxf(maxf(rear_pedal, park_brake), handbrake)
 	_steering_wheel.rotation.y = _steer * steering_wheel_ratio
+
+
+## A rear wheel locked by the handbrake while moving slides instead of rolling:
+## it brakes weaker and holds sideways much worse, so the rear swings out.
+## Standing still the tires keep full grip, so the handbrake holds on slopes.
+func _apply_rear_grip(speed_kmh: float) -> void:
+	var sliding: bool = _handbrake_on and absf(speed_kmh) > stats.handbrake_slide_speed_kmh
+	var grip: float = stats.rear_friction_slip
+	if sliding:
+		grip *= stats.locked_wheel_grip
+	for wheel: VehicleWheel3D in _rear_wheels:
+		wheel.wheel_friction_slip = grip
 
 
 func _enter_vehicle(player: Player) -> void:

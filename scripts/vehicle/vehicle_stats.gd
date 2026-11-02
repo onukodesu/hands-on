@@ -10,7 +10,7 @@ extends Resource
 ## Height of the center of mass relative to the body origin (wheel mount level).
 ## Higher = more body lean outward in turns and easier to flip.
 ## Below about -0.1 the body starts leaning INTO turns, which is unrealistic.
-@export_range(-1.0, 1.0, 0.01, "suffix:m") var center_of_mass_height: float = 0.35
+@export_range(-1.0, 1.0, 0.01, "suffix:m") var center_of_mass_height: float = 0.0
 ## Shift of the center of mass toward the front (+) or rear (-).
 ## Real SUVs are front-heavy, which makes them push wide in fast turns
 ## (understeer) instead of spinning.
@@ -37,10 +37,19 @@ extends Resource
 @export_range(0.0, 30.0, 0.5, "suffix:km/h") var shift_lock_speed_kmh: float = 3.0
 
 @export_group("Brakes")
-## Brake strength on each wheel (S).
-@export_range(0.0, 500.0, 1.0) var brake_force: float = 50.0
-## Handbrake strength on each rear wheel (Space toggles it).
+## Total pedal brake strength (S), shared between all four wheels.
+@export_range(0.0, 2000.0, 1.0) var brake_force: float = 200.0
+## Share of the pedal brake on the front axle (0.65 = 65% front, 35% rear).
+## Too much on the rear and the rear locks first and the vehicle spins.
+@export_range(0.0, 1.0, 0.01) var brake_front_share: float = 0.65
+## Handbrake strength on each rear wheel (Space toggles it). Rear wheels only.
 @export_range(0.0, 500.0, 1.0) var handbrake_force: float = 80.0
+## Grip of rear wheels locked by the handbrake while moving, as a share of their
+## normal grip. A sliding tire grips worse than a rolling one, so the rear swings out.
+@export_range(0.05, 1.0, 0.01) var locked_wheel_grip: float = 0.6
+## Above this speed the handbrake-locked rear wheels count as sliding.
+## Below it they keep full grip, so the handbrake holds the vehicle on slopes.
+@export_range(0.0, 30.0, 0.5, "suffix:km/h") var handbrake_slide_speed_kmh: float = 5.0
 ## How hard P locks all four wheels.
 @export_range(0.0, 1000.0, 1.0) var park_brake_force: float = 200.0
 
@@ -86,5 +95,7 @@ extends Resource
 @export_range(0.5, 20.0, 0.1) var front_friction_slip: float = 0.8
 ## Grip of the rear tires.
 @export_range(0.5, 20.0, 0.1) var rear_friction_slip: float = 1.0
-## How much side forces tilt the body. 0 = never rolls, 1 = realistic and easy to flip.
-@export_range(0.0, 1.0, 0.01) var wheel_roll_influence: float = 0.1
+## How much side forces in turns lean the body outward (0 = no lean, 1 = full).
+## Works together with center_of_mass_height: lean comes from both, but only the
+## center of mass also changes nose dive under braking.
+@export_range(0.0, 1.0, 0.01) var wheel_roll_influence: float = 0.7
