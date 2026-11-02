@@ -39,7 +39,6 @@ shadow_enabled = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
 
 [node name="Mesh" type="MeshInstance3D" parent="Ground" unique_id=1742503147]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.02903366, 0.064545155, -0.02969718)
 mesh = SubResource("BoxMesh_ground")
 
 [node name="Collision" type="CollisionShape3D" parent="Ground" unique_id=1056855728]
